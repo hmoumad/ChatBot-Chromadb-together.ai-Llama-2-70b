@@ -5,28 +5,35 @@
 
 import streamlit as st
 import ExtractDataOCR
+import ExtractDataPyPDF2_2
+
+from langchain_nomic import NomicEmbeddings
+from langchain_nomic.embeddings import NomicEmbeddings
+
 import os
-import pandas as pd
-from langchain.text_splitter import RecursiveCharacterTextSplitt
-er
+
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_community.embeddings import HuggingFaceEmbeddings
 from langchain_community.vectorstores import Chroma
-import chromadb
-import chromadb.utils.embedding_functions as embedding_functions
+
 from langchain_community.embeddings.sentence_transformer import SentenceTransformerEmbeddings
 
 from langchain.prompts import PromptTemplate
 from langchain.chains import RetrievalQA
 
-from langchain.llms import Together
+from langchain_together import Together
 from decouple import config
 
 # Load environment variables
 together_api_key = config("together_api_key")
 os.environ["together_api_key"] = together_api_key
 
-llmMistral = Together(
-    model="togethercomputer/llama-2-70b-chat",
+# Load environment variables
+nomic_api_key = config("nomic_api_key")
+os.environ["nomic_api_key"] = nomic_api_key
+
+llmLlama_3 = Together(
+    model="meta-llama/Llama-3-70b-chat-hf",
     temperature=0.7,
     max_tokens=128,
     top_k=1,
@@ -59,27 +66,25 @@ def main():
             st.spinner("Processing")
 
             if pdf_file:
+
                 # Extract file path from uploaded file object
                 FILE_PATH = os.path.join(pdf_file.name)
                 with open(FILE_PATH, "wb") as f:
                     f.write(pdf_file.read())
                 
                 # Application of OCR to transfrome PDF to images and extract texts from this images
-                File_Text = ExtractDataOCR.extract_text_from_pdf(FILE_PATH)
-                # st.success("Uploaded successfully")
+                # File_Text = ExtractDataOCR.extract_text_from_pdf(FILE_PATH) # you can incomment this line if you want to use OCR
 
-    # # Display the value of File_Text
-    # if File_Text is not None:
-    #     st.write("Extracted text from PDF:")
-    #     st.write(File_Text)
+                # Application of OCR to transfrome PDF to images and extract texts from this images
+                File_Text = ExtractDataPyPDF2_2.Extract_text_pypdf2(FILE_PATH) # you can comment this line if you uncomment OCR
 
     if File_Text is not None:
         if isinstance(File_Text, list):
             File_Text = ''.join(File_Text)  # Join the list into a single string
             
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=1000,
-            chunk_overlap=200,
+            chunk_size=300,
+            chunk_overlap=50,
             length_function=len
         )
 
@@ -91,62 +96,89 @@ def main():
         COLLECTION_NAME = pdf_file.name[:-4]
 
         # create the open-source embedding function
-        embedding_function = SentenceTransformerEmbeddings(
-            model_name="all-MiniLM-L6-v2"
-        )
+        embedding_function = SentenceTransformerEmbeddings(model_name="all-MiniLM-L6-v2")
 
+        # create the open-source embedding function
+        # embedding_function = NomicEmbeddings(model="nomic-embed-text-v1")
+
+        # Create path of destination files
         persist_directory = os.path.join(CHROMA_DATA_PATH, COLLECTION_NAME)
-        # save to disk
+
+        # save documents to disk thanks to Chromadb
         st.session_state.vector_db = Chroma.from_texts(
             chunks, 
             embedding_function, 
             persist_directory=persist_directory
         )
 
+        # show alert to show termination of the process
         st.success("All id Done Good ~~!!")
 
-    # User input
+    # User input "this varaiable stock the question asked by user"
     if user_input := st.chat_input("Ask me Question about your PDF File 📖"):
 
-        # pass the user input to vector database and applique semantic search
-        semantic_search = st.session_state.vector_db.max_marginal_relevance_search(user_input, k=2)
-
-        QA_Prompt = PromptTemplate(
-            template="""Use the following pieces of context to answer to the user question
-            context = {text}
-            question = {question}
-            Answer:""",
-            input_variables=["text", "question"]
-        )
+        # # pass the user input to vector database and applique semantic search
+        # semantic_search = st.session_state.vector_db.max_marginal_relevance_search(user_input, k=2)
 
         QA_Chain = RetrievalQA.from_chain_type(
-            llm = llmMistral,
-            retriever = st.session_state.vector_db.as_retriever(),
+            llm = llmLlama_3,
+            retriever = st.session_state.vector_db.as_retriever(search_kwargs={"k": 2}),
             return_source_documents = True,
             chain_type = "map_reduce"
         )
 
-        question = user_input
-        response = QA_Chain({"query": question})
-        response_value = response["result"]
-        # response_source = response["source_documents"]
+        # Create Prompte to passe the question withe more context to the model
+        QA_Prompt = PromptTemplate(
+            template=""" 
+            <|begin_of_text|><|start_header_id|>system<|end_header_id|>
+            As an expert of Question answering for all resharches articles,\
+            <|eot_id|>
 
-        # Add user message to chat history
+            <|start_header_id|>user<|end_header_id|>
+            Use the following pieces of context and your backgruond Knowledge to answer to the user question
+            question = {question}
+
+            Please use at maxe 50 words in your answer 
+            <|eot_id|>
+
+            <|start_header_id|>assistant<|end_header_id|>
+            Answer: """,
+            
+            input_variables=["question"]
+        )
+
+        question_prompt = QA_Prompt.format(question=user_input)
+
+        response = QA_Chain({"query": question_prompt + "\n"})
+
+        response_value = response["result"]
+
+         # Function to extract text until ".assistant"
+        def extract_text_until_assistant(text):
+            return text.split('.assistant')[0]
+        
+        # Loop through the list and apply the function
+        final_answers = extract_text_until_assistant(response_value)
+        response_source = response["source_documents"]
+        print("==============================la reponse sans la formater ======================================")
+        print(response_value)
+        print("==============================la source de la reponse ======================================")
+        print(response_source)
+
+        # Add user mess age to chat history
         st.session_state.chat_history.append({"role": "user", "message": user_input})
 
         # Generate response from the chatbot
-        st.session_state.chat_history.append({"role": "bot", "message": response_value})
-
-        
-        # # Generate source from the chatbot
-        # st.session_state.chat_history.append({"role": "bot", "message": response_source})
+        st.session_state.chat_history.append({"role": "bot", "message": final_answers})
 
     # Display chat history
     for item in st.session_state.chat_history:
+
         if item["role"] == "user":
             # st.write("You: ", item["message"])
             with st.chat_message("user"):
                 st.markdown(item["message"])
+
         else:
             # st.write("Bot: ", item["message"])
             with st.chat_message("assistant"):
