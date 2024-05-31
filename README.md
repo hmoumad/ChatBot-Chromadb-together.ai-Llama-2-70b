@@ -29,3 +29,12 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 ## Acknowledgements
 Thanks to together.ai for developing the Llama-2-70b language model.
 Special thanks to the creators of the Chromadb database.
+
+## Show Resutls
+first image contains the conversation with our chatbot 
+![ReponseFinal](https://github.com/hmoumad/ChatBot-analyse-des-articles-scientifique/assets/148491488/9facb55e-0a9f-427e-8fff-fb62dda8674c)
+
+the second image contains the background result of our chat that contains the source of answers from PDF.
+![DetailsReponse](https://github.com/hmoumad/ChatBot-analyse-des-articles-scientifique/assets/148491488/1b99b7ae-8484-4b70-8cc8-5da2e4885363)
+
+
